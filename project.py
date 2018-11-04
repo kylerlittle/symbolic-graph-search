@@ -2,42 +2,41 @@ from pyeda.inter import *
 import gvmagic as gv
 from graphviz import Source
 
+debug = False
+
 def graph_BDD(bdd, filename):
+    """Graph bdd; display it; save as filename
+    """
     assert isinstance(bdd, BinaryDecisionDiagram)
     dot = bdd.to_dot()   # convert BDD object to raw DOT language str
     src = Source(dot)    # convert raw DOT language str to Source object
     src.render(filename, view=True)    
 
-def isEdgeBetweenExpr():
-    """Return boolean function which returns true (1) if edge from a to b. Else false (0)
+def generateEdgeExpr(modulo):
+    """Generate boolean function which returns true (1) if edge from a to b. Else false (0)
     """
-    # assert isinstance(a, int) and isinstance(b, int)
+    assert isinstance(modulo, int)
+    bits_needed = uint2exprs(modulo).size - 1
+    fullEdgeExpr = Or()
 
-    # Convert a and b to farray representations
-    # a_bin_plus_three = uint2exprs((a+3)%32, length=5)
-    # a_bin_plus_seven = uint2exprs((a+7)%32, length=5)
-    # b_bin = uint2exprs(b%32, length=5)
+    for i in range(modulo):
+        for j in range(modulo):
+            edge_bin = uint2exprs(i, length=bits_needed) + uint2exprs(j, length=bits_needed)
 
-    # # Store a_bin + bin(three) && a_bin + bin(seven)
-    # ci = exprvar('ci', 5)
-    # a_bin_plus_three = ~(a_bin ^ 
-    # a_bin_plus_seven = 0
+            # If we actually want to include this edge
+            if (i+3)%modulo == j%modulo or (i+7)%modulo == j%modulo:
+                # Declare our 10-bit variables as a bit-vector
+                currEdge = exprvars('edge', bits_needed*2)
 
-    # Mod ^^ by 32 and b_bin by 32.
-    # a_bin_plus_three_mod_32 = a_bin_plus_three.rsh(5)
-    # a_bin_plus_seven_mod_32 = a_bin_plus_seven.rsh(5)
-    # b_bin_mod_32 = b_bin.rsh(5)
+                # First 5 bits represent num #1, second represent num #2; ~ if 0, o.w. normal; then and everything
+                edgeExpr = And()
+                for k in range(bits_needed):
+                    edgeExpr &= (Not(currEdge[k]) if edge_bin[k] == expr(0) else currEdge[k]) & (Not(currEdge[k+bits_needed]) if edge_bin[k+bits_needed] == expr(0) else currEdge[k+bits_needed])
+                if debug: print("Adding {0}".format(edgeExpr))
 
-    # return ~(a_bin_plus_three ^ b_bin) | ~(a_bin_plus_seven ^ b_bin)
-
-    # Return true if (a+3) % 32 == b or (a+7) % 32 == b
-    # return ~(a_bin_plus_three_mod_32 ^ b_bin_mod_32) | ~(a_bin_plus_seven_mod_32 ^ b_bin_mod_32)
-    three = uint2exprs(3, length=10)  # 5-bit representation of 3
-    num = exprvars('X', 10)
-
-    # Res is an expression that determines whether num == 3.
-    res = (~(num ^ three)).uand()
-    return res
+                # Or it with our full expression, since any edge which satisfies this criteria should be included
+                fullEdgeExpr |= edgeExpr
+    return fullEdgeExpr
 
 def numSatisfiesExpr(num, expression, bits_needed):
     """Ugly hack to determine whether an integer (num) satisfies a Boolean Expression
@@ -47,7 +46,7 @@ def numSatisfiesExpr(num, expression, bits_needed):
 
     # Get binary number string of num (using 'bits_needed' binary values)
     binNumStr = ''.join(reversed([str(binDigit) for binDigit in uint2bdds(num, length=bits_needed)]))
-    print("Testing that {0} ({1}) satisfies expression.".format(num, binNumStr))
+    if debug: print("Testing that {0} ({1}) satisfies expression.".format(num, binNumStr))
 
     # Iterate over each Boolean Point (represented by a dict in pyEDA) that satisfies expression
     for point in expression.satisfy_all():
@@ -58,61 +57,34 @@ def numSatisfiesExpr(num, expression, bits_needed):
         strOfPoint = ''.join([str(point[variableVal]) for variableVal in B])
 
         if strOfPoint == binNumStr:
-            print("==> YES -- {0} ({1}) satisifies expression.".format(num, binNumStr))
+            if debug: print("==> YES -- {0} ({1}) satisifies expression.".format(num, binNumStr))
             break
     else:
-        print("==> NO -- {0} ({1}) doesn't satisify expression.".format(num, binNumStr))
+        if debug: print("==> NO -- {0} ({1}) doesn't satisify expression.".format(num, binNumStr))
         result = False
     return result
         
 
 def main():
-    # Step 0. Generate 32 integers for graph.
-    L = [i for i in range(32)]
-
     # Step 1. Build Boolean Decision Diagram (BDD) denoted as F.
     """
-    ...
-    """
-    three = uint2exprs(3, length=5)  # 5-bit representation of 3
-    seven = uint2exprs(7, length=5)  # 5-bit representation of 7
-    # print(adder(three, seven))
-    print(three)
-    print(seven)
-    num = exprvars('X', 5)
-    print(~(num ^ three))
-    # Res is an expression that determines whether num == 3.
-    res = (~(num ^ three)).uand()
-    assert numSatisfiesExpr(3, res, 5) == True
-    assert numSatisfiesExpr(9, res, 5) == False
-
-
-    pointsThatSatisfyRes = list(res.satisfy_all())
-    # print("points: {0}".format(pointsThatSatisfyRes))
-    # testStr = ''
-    # for val in pointsThatSatisfyRes[0].values():
-    #     testStr += str(val)
-    # print("point in binary: {0}".format(testStr))
-
-    # print("TYPE ==> {0}".format(type(pointsThatSatisfyRes[0])))
-    # print(res)
-    # print(type(res))
-    # print(res.degree)
-    # print(res.support)
-    print(expr2truthtable(res))
-
-    """
-    Instead of passing in integers, I just need 5-bit variables. The expression must accept
-    10 bit variables and then return all 10 bit variables which satisfy it.
+    First build a Boolean expression; then convert it to BDD.
+    The expression must accept 10 bit variables. If those 10 bits represent an edge, the expression will return true (1).
+    
     I can then test my answer by calling numSatisfiesExpr(  (expr(i, length=5) + expr(j, length=5)).to_uint(), expr  )
     """
-
-    print("testing")
-    for i in range(32):
-        for j in range(32):
-            edgeNumber = (uint2exprs(i, length=5) + uint2exprs(j, length=5)).to_uint()
-            if numSatisfiesExpr(edgeNumber, isEdgeBetweenExpr(), 10) == True:
+    modulo = 32
+    bits_needed = uint2exprs(modulo - 1).size
+    offset = 0
+    boolExpr = generateEdgeExpr(modulo).simplify()
+    for i in range(offset, modulo+offset):
+        for j in range(offset, modulo+offset):
+            if (i+3)%modulo == j%modulo or (i+7)%modulo == j%modulo:
+                edgeNumber = (uint2exprs(i%32, length=bits_needed) + uint2exprs(j%32, length=bits_needed)).to_uint()
+                assert numSatisfiesExpr(edgeNumber, boolExpr, bits_needed*2) == True
                 print("There is an edge from {0} to {1}.".format(i,j))
+    F = expr2bdd(boolExpr)
+    graph_BDD(F, "img/F.gv")
 
 
     # Step 2. Compute the transitive closure of F, denoted as transitiveF
@@ -125,11 +97,6 @@ def main():
     """
     ...
     """
-
-    # Test code
-    # a, b, c = map(bddvar, 'abc')
-    # f = a & b | a & c | b & c
-    # graph_BDD(f, "img/test.gv")
 
 
 if __name__ == '__main__':
