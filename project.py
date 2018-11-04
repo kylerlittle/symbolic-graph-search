@@ -12,29 +12,33 @@ def graph_BDD(bdd, filename):
     src = Source(dot)    # convert raw DOT language str to Source object
     src.render(filename, view=True)    
 
-def generateEdgeExpr(modulo):
+def generateEdgeExpr(modulo, nodes, offset):
     """Generate boolean function which returns true (1) if edge from a to b. Else false (0)
     """
-    assert isinstance(modulo, int)
-    bits_needed = uint2exprs(modulo).size - 1
+    assert isinstance(modulo, int) and isinstance(nodes, int) and isinstance(offset, int)
+    bits_needed = uint2exprs(nodes + offset - 1).size
     fullEdgeExpr = Or()
 
-    for i in range(modulo):
-        for j in range(modulo):
-            edge_bin = uint2exprs(i, length=bits_needed) + uint2exprs(j, length=bits_needed)
+    if debug: print("Generating edge expression with...\nmodulo: {0}\nnodes: {1}\noffset: {2}".format(modulo, nodes, offset))
 
+    for i in range(offset, nodes+offset):
+        for j in range(offset, nodes+offset):
             # If we actually want to include this edge
             if (i+3)%modulo == j%modulo or (i+7)%modulo == j%modulo:
-                # Declare our 10-bit variables as a bit-vector
+                # Get (2*bits_needed)-bit representation of ij (concatenated)
+                edge_bin = uint2exprs(i%32, length=bits_needed) + uint2exprs(j%32, length=bits_needed)
+                
+                # Declare our bits_needed-bit variables as a bit-vector
                 currEdge = exprvars('edge', bits_needed*2)
 
-                # First 5 bits represent num #1, second represent num #2; ~ if 0, o.w. normal; then and everything
+                # First bits_needed bits represent num #1, second represent num #2; '~' if 0, o.w. normal; then, '&' everything
                 edgeExpr = And()
                 for k in range(bits_needed):
-                    edgeExpr &= (Not(currEdge[k]) if edge_bin[k] == expr(0) else currEdge[k]) & (Not(currEdge[k+bits_needed]) if edge_bin[k+bits_needed] == expr(0) else currEdge[k+bits_needed])
+                    edgeExpr &= (Not(currEdge[k]) if edge_bin[k] == expr(0) else currEdge[k]) \
+                    & (Not(currEdge[k+bits_needed]) if edge_bin[k+bits_needed] == expr(0) else currEdge[k+bits_needed])
                 if debug: print("Adding {0}".format(edgeExpr))
 
-                # Or it with our full expression, since any edge which satisfies this criteria should be included
+                # 'Or' it with our full expression, since any edge which satisfies this criteria should be included
                 fullEdgeExpr |= edgeExpr
     return fullEdgeExpr
 
@@ -70,15 +74,16 @@ def main():
     """
     First build a Boolean expression; then convert it to BDD.
     The expression must accept 10 bit variables. If those 10 bits represent an edge, the expression will return true (1).
-    
+
     I can then test my answer by calling numSatisfiesExpr(  (expr(i, length=5) + expr(j, length=5)).to_uint(), expr  )
     """
+    nodes = 32
     modulo = 32
-    bits_needed = uint2exprs(modulo - 1).size
     offset = 0
-    boolExpr = generateEdgeExpr(modulo).simplify()
-    for i in range(offset, modulo+offset):
-        for j in range(offset, modulo+offset):
+    bits_needed = uint2exprs(nodes + offset - 1).size
+    boolExpr = generateEdgeExpr(modulo, nodes, offset).simplify()
+    for i in range(offset, nodes+offset):
+        for j in range(offset, nodes+offset):
             if (i+3)%modulo == j%modulo or (i+7)%modulo == j%modulo:
                 edgeNumber = (uint2exprs(i%32, length=bits_needed) + uint2exprs(j%32, length=bits_needed)).to_uint()
                 assert numSatisfiesExpr(edgeNumber, boolExpr, bits_needed*2) == True
