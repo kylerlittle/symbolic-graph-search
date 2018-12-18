@@ -86,7 +86,7 @@ def computeTransitiveClosure(boolExpr):
     # Initialize _H as initial boolean expression
     _H = boolExpr
     H = Or()        # some random Expression not equal to _H
-    edgesToReach = 2; max_iterations = 5
+    edgesToReach = 2; max_iterations = 10000
     canReachInXStepsExpr = {1:boolExpr}
     while _H.equivalent(H) == False and edgesToReach < max_iterations:
         H = _H
@@ -132,7 +132,17 @@ def main():
     # Step 2. Compute the transitive closure of F, denoted as transitiveF
     canReachInXStepsExpr = computeTransitiveClosure(boolExpr)
 
-    # Step 3. Can node i reach node j in one or more steps?
+    # Step 3. Can every node reach every other node in 1+ edges?
+    maxEdgesToReachNode = max(canReachInXStepsExpr.keys())
+    transitiveClosure = canReachInXStepsExpr[maxEdgesToReachNode]
+    print(expr2truthtable(transitiveClosure))  # every output should be 1
+    # if every output is 1, this will print true
+    print("Every node can reach every other node: {0}".format(transitiveClosure.is_one()))
+    # Graph to check
+    F = expr2bdd(transitiveClosure)
+    graph_BDD(F, "img/transitive_closure.gv")
+
+    # Step 4. How many steps does it take node i to reach node j?
     for i in range(offset, nodes+offset):
         for j in range(offset, nodes+offset):
             result = canReach(i, j, canReachInXStepsExpr, modulo, bits_needed)
